@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Onboarding Compliance Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">Upload result</p>
+        <h1>Onboarding Compliance</h1>
+      </div>
+      <div class="upload-controls">
+        <label class="file-button">
+          <input id="csvFile" type="file" accept=".csv,text/csv">
+          Upload CSV
+        </label>
+        <button id="clearButton" class="ghost-button" type="button" hidden>Clear</button>
+      </div>
+    </header>
+
+    <main>
+      <section id="dashboard" class="dashboard" hidden>
+        <div class="snapshot-bar">
+          <div>
+            <p class="eyebrow">Report</p>
+            <h2 id="reportTitle">Snapshot</h2>
+          </div>
+          <div class="report-meta">
+            <span id="rowCount">0 rows</span>
+            <span id="columnCount">0 columns</span>
+            <span id="reportDate">No date</span>
+          </div>
+        </div>
+
+        <section id="summaryCards" class="summary-grid" aria-label="Summary metrics"></section>
+
+        <section class="work-area">
+          <aside class="filters-panel" aria-label="Filters">
+            <div class="panel-heading">
+              <h2>Filters</h2>
+              <button id="resetFilters" class="text-button" type="button">Reset</button>
+            </div>
+
+            <label>
+              Search
+              <input id="searchFilter" type="search" placeholder="Name, ID, office">
+            </label>
+
+            <label>
+              Office
+              <select id="officeFilter"></select>
+            </label>
+
+            <label>
+              Branch
+              <select id="branchFilter"></select>
+            </label>
+
+            <label>
+              Representative
+              <select id="representativeFilter"></select>
+            </label>
+
+            <label>
+              Talent status
+              <select id="statusFilter"></select>
+            </label>
+
+            <label>
+              Priority
+              <select id="priorityFilter"></select>
+            </label>
+
+            <label>
+              Blocker
+              <select id="blockerFilter"></select>
+            </label>
+
+            <div class="date-grid">
+              <label>
+                Created from
+                <input id="createdFromFilter" type="date">
+              </label>
+              <label>
+                Created to
+                <input id="createdToFilter" type="date">
+              </label>
+            </div>
+
+            <label>
+              Last activity
+              <select id="activityAgeFilter">
+                <option value="">Any age</option>
+                <option value="stale7">Blank or over 7 days</option>
+                <option value="stale14">Blank or over 14 days</option>
+                <option value="blank">Blank only</option>
+              </select>
+            </label>
+
+            <label class="check-row">
+              <input id="includeInactiveFilter" type="checkbox">
+              Include inactive
+            </label>
+          </aside>
+
+          <section class="queue-panel">
+            <div class="panel-heading queue-heading">
+              <div>
+                <p class="eyebrow">Action queue</p>
+                <h2 id="queueCount">0 candidates</h2>
+              </div>
+              <div class="queue-tabs" role="tablist" aria-label="Dashboard views">
+                <button class="tab-button is-active" type="button" data-view="queue">Queue</button>
+                <button class="tab-button" type="button" data-view="breakdowns">Breakdowns</button>
+              </div>
+            </div>
+
+            <div id="queueView">
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th><button class="sort-button is-active" type="button" data-sort="priority">Priority <span aria-hidden="true">↑</span></button></th>
+                      <th><button class="sort-button" type="button" data-sort="applicant">Applicant</button></th>
+                      <th><button class="sort-button" type="button" data-sort="status">Status</button></th>
+                      <th><button class="sort-button" type="button" data-sort="office">Office</button></th>
+                      <th><button class="sort-button" type="button" data-sort="representative">Representative</button></th>
+                      <th><button class="sort-button" type="button" data-sort="blocker">Top blocker</button></th>
+                      <th><button class="sort-button" type="button" data-sort="pending">Pending</button></th>
+                      <th><button class="sort-button" type="button" data-sort="activity">Last activity</button></th>
+                      <th><button class="sort-button" type="button" data-sort="created">Created</button></th>
+                    </tr>
+                    <tr class="queue-filter-row">
+                      <th>
+                        <select class="queue-filter" data-queue-filter="priority" aria-label="Filter priority">
+                          <option value="">All</option>
+                          <option value="Critical">Critical</option>
+                          <option value="High">High</option>
+                          <option value="Medium">Medium</option>
+                          <option value="Info">Info</option>
+                        </select>
+                      </th>
+                      <th><input class="queue-filter" data-queue-filter="applicant" aria-label="Filter applicant" type="search" placeholder="Name or ID"></th>
+                      <th><input class="queue-filter" data-queue-filter="status" aria-label="Filter status" type="search" placeholder="Status"></th>
+                      <th><input class="queue-filter" data-queue-filter="office" aria-label="Filter office" type="search" placeholder="Office"></th>
+                      <th><input class="queue-filter" data-queue-filter="representative" aria-label="Filter representative" type="search" placeholder="Rep"></th>
+                      <th><input class="queue-filter" data-queue-filter="blocker" aria-label="Filter blocker" type="search" placeholder="Blocker"></th>
+                      <th>
+                        <select class="queue-filter" data-queue-filter="pending" aria-label="Filter pending count">
+                          <option value="">Any</option>
+                          <option value="has">Has pending</option>
+                          <option value="none">No pending</option>
+                        </select>
+                      </th>
+                      <th>
+                        <select class="queue-filter" data-queue-filter="activity" aria-label="Filter last activity">
+                          <option value="">Any</option>
+                          <option value="blank">Blank</option>
+                          <option value="stale7">Over 7 days</option>
+                          <option value="stale14">Over 14 days</option>
+                        </select>
+                      </th>
+                      <th><input class="queue-filter" data-queue-filter="created" aria-label="Filter created date" type="search" placeholder="YYYY-MM-DD"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="queueBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="breakdownView" hidden>
+              <div class="breakdown-grid">
+                <section>
+                  <h3>Blockers</h3>
+                  <div id="blockerBreakdown" class="bar-list"></div>
+                </section>
+                <section>
+                  <h3>Status funnel</h3>
+                  <div id="statusBreakdown" class="bar-list"></div>
+                </section>
+                <section>
+                  <h3>Office load</h3>
+                  <div id="officeBreakdown" class="bar-list"></div>
+                </section>
+                <section>
+                  <h3>Data warnings</h3>
+                  <div id="warningList" class="warning-list"></div>
+                </section>
+              </div>
+            </div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <aside id="detailDrawer" class="detail-drawer" aria-label="Candidate detail" aria-hidden="true">
+      <div class="drawer-card">
+        <div class="drawer-heading">
+          <div>
+            <p class="eyebrow" id="detailPriority">Priority</p>
+            <h2 id="detailName">Candidate</h2>
+          </div>
+          <button id="closeDrawer" class="icon-button" type="button" aria-label="Close detail">x</button>
+        </div>
+        <div id="detailContent" class="drawer-content"></div>
+      </div>
+    </aside>
+
+    <script src="dashboard-core.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
