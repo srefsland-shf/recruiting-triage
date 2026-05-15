@@ -51,6 +51,16 @@ const inlineSnapshot = Dashboard.createDashboardFromCsv(inlineCsv, {
   fallbackDate: new Date(2026, 4, 14),
 });
 
+const nameFormatCsv = [
+  "Applicant,First Name,Last Name,Talent Status,Talent ID,Talent Created Date",
+  "Freeman Kristin,Kristin,Freeman,Online Applicant,123,05/01/2026",
+].join("\n");
+const nameFormatSnapshot = Dashboard.createDashboardFromCsv(nameFormatCsv, {
+  fileName: "Onboarding-Compliance-Report_20260514_1120AM.csv",
+  fallbackDate: new Date(2026, 4, 14),
+});
+assertEqual(nameFormatSnapshot.actionQueue[0].applicant, "Freeman, Kristin", "applicant name uses Last, First format");
+
 assertEqual(inlineSnapshot.summary.totalActiveCandidates, 4, "active summary excludes inactive rows");
 assertEqual(inlineSnapshot.summary.fullyVetted, 1, "fully vetted count is separate");
 assertEqual(inlineSnapshot.summary.started, 1, "started count is separate");

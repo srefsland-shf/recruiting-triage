@@ -242,7 +242,7 @@ function renderQueueOptionList(list, values) {
 function renderQueueFilterOptions(snapshot) {
   const candidates = snapshot.actionQueue || [];
   const options = {
-    applicant: candidates.flatMap((candidate) => [candidate.applicant, candidate.talentId]),
+    applicant: candidates.flatMap((candidate) => [candidate.applicant, candidate.raw.Applicant, candidate.talentId]),
     status: candidates.flatMap((candidate) => [candidate.talentStatus, candidate.currentPlacementStatus]),
     office: candidates.map((candidate) => candidate.talentOffice || "Unassigned"),
     representative: candidates.map((candidate) => candidate.talentRepresentative || "Unassigned"),
@@ -538,7 +538,7 @@ function exportSimpleFilteredCsv() {
 function queueText(candidate, key) {
   const values = {
     priority: candidate.priority,
-    applicant: `${candidate.applicant} ${candidate.talentId}`,
+    applicant: `${candidate.applicant} ${candidate.raw.Applicant} ${candidate.talentId}`,
     status: `${candidate.talentStatus} ${candidate.currentPlacementStatus}`,
     office: candidate.talentOffice || "Unassigned",
     representative: candidate.talentRepresentative || "Unassigned",

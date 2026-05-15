@@ -194,6 +194,16 @@
     return String(value || "").trim();
   }
 
+  function formatApplicantName(raw) {
+    const firstName = normalizeText(raw["First Name"]);
+    const lastName = normalizeText(raw["Last Name"]);
+    const applicant = normalizeText(raw.Applicant);
+    if (lastName && firstName) {
+      return `${lastName}, ${firstName}`;
+    }
+    return applicant || lastName || firstName;
+  }
+
   function yes(value) {
     return /^yes$/i.test(normalizeText(value));
   }
@@ -332,7 +342,7 @@
     const pendingBase = {
       rowNumber: index + 2,
       id: `row-${index + 2}`,
-      applicant: normalizeText(raw.Applicant) || [raw["First Name"], raw["Last Name"]].map(normalizeText).filter(Boolean).join(" "),
+      applicant: formatApplicantName(raw),
       talentId: normalizeText(raw["Talent ID"]),
       firstName: normalizeText(raw["First Name"]),
       lastName: normalizeText(raw["Last Name"]),
