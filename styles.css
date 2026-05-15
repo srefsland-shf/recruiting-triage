@@ -615,9 +615,6 @@ td {
 }
 
 th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   background: var(--surface-strong);
   color: #354556;
   font-size: 0.72rem;
@@ -626,10 +623,8 @@ th {
 }
 
 .queue-filter-row th {
-  top: 39px;
   padding: 7px 8px;
   background: #f9fbfd;
-  z-index: 1;
 }
 
 .sort-button {
