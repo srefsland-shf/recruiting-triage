@@ -565,7 +565,7 @@ main {
 
 .queue-panel {
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .queue-heading {
@@ -594,8 +594,8 @@ main {
 }
 
 .table-wrap {
-  overflow: auto;
-  max-height: calc(100vh - 335px);
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 table {
