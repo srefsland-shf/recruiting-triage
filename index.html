@@ -123,6 +123,7 @@
               </div>
               <div class="queue-actions">
                 <button id="exportFilteredCsv" class="ghost-button compact-button" type="button">Export CSV</button>
+                <button id="simpleExportFilteredCsv" class="ghost-button compact-button" type="button">Simple Export</button>
                 <div class="queue-tabs" role="tablist" aria-label="Dashboard views">
                   <button class="tab-button is-active" type="button" data-view="queue">Queue</button>
                   <button class="tab-button" type="button" data-view="breakdowns">Breakdowns</button>
@@ -159,11 +160,11 @@
                           <option value="Info">Info</option>
                         </select>
                       </th>
-                      <th><input class="queue-filter" data-queue-filter="applicant" aria-label="Filter applicant" type="search" placeholder="Name or ID"></th>
-                      <th><input class="queue-filter" data-queue-filter="status" aria-label="Filter status" type="search" placeholder="Status"></th>
-                      <th><input class="queue-filter" data-queue-filter="office" aria-label="Filter office" type="search" placeholder="Office"></th>
-                      <th><input class="queue-filter" data-queue-filter="representative" aria-label="Filter representative" type="search" placeholder="Rep"></th>
-                      <th><input class="queue-filter" data-queue-filter="blocker" aria-label="Filter blocker" type="search" placeholder="Blocker"></th>
+                      <th><input class="queue-filter" data-queue-filter="applicant" aria-label="Filter applicant" type="search" placeholder="Name or ID" list="queueApplicantOptions"></th>
+                      <th><input class="queue-filter" data-queue-filter="status" aria-label="Filter status" type="search" placeholder="Status" list="queueStatusOptions"></th>
+                      <th><input class="queue-filter" data-queue-filter="office" aria-label="Filter office" type="search" placeholder="Office" list="queueOfficeOptions"></th>
+                      <th><input class="queue-filter" data-queue-filter="representative" aria-label="Filter representative" type="search" placeholder="Rep" list="queueRepresentativeOptions"></th>
+                      <th><input class="queue-filter" data-queue-filter="blocker" aria-label="Filter blocker" type="search" placeholder="Blocker" list="queueBlockerOptions"></th>
                       <th>
                         <select class="queue-filter" data-queue-filter="pending" aria-label="Filter pending count">
                           <option value="">Any</option>
@@ -179,11 +180,17 @@
                           <option value="stale14">Over 14 days</option>
                         </select>
                       </th>
-                      <th><input class="queue-filter" data-queue-filter="created" aria-label="Filter created date" type="search" placeholder="YYYY-MM-DD"></th>
+                      <th><input class="queue-filter" data-queue-filter="created" aria-label="Filter created date" type="search" placeholder="YYYY-MM-DD" list="queueCreatedOptions"></th>
                     </tr>
                   </thead>
                   <tbody id="queueBody"></tbody>
                 </table>
+                <datalist id="queueApplicantOptions" data-queue-options="applicant"></datalist>
+                <datalist id="queueStatusOptions" data-queue-options="status"></datalist>
+                <datalist id="queueOfficeOptions" data-queue-options="office"></datalist>
+                <datalist id="queueRepresentativeOptions" data-queue-options="representative"></datalist>
+                <datalist id="queueBlockerOptions" data-queue-options="blocker"></datalist>
+                <datalist id="queueCreatedOptions" data-queue-options="created"></datalist>
               </div>
             </div>
 

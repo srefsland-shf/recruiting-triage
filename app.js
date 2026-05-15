@@ -63,11 +63,13 @@ const elements = {
   resetFilters: document.getElementById("resetFilters"),
   queueCount: document.getElementById("queueCount"),
   exportFilteredCsv: document.getElementById("exportFilteredCsv"),
+  simpleExportFilteredCsv: document.getElementById("simpleExportFilteredCsv"),
   queueBody: document.getElementById("queueBody"),
   tileFilterNotice: document.getElementById("tileFilterNotice"),
   tileFilterText: document.getElementById("tileFilterText"),
   clearTileFilter: document.getElementById("clearTileFilter"),
   queueFilters: Array.from(document.querySelectorAll("[data-queue-filter]")),
+  queueOptionLists: Array.from(document.querySelectorAll("[data-queue-options]")),
   sortButtons: Array.from(document.querySelectorAll("[data-sort]")),
   queueView: document.getElementById("queueView"),
   breakdownView: document.getElementById("breakdownView"),
@@ -222,6 +224,34 @@ function optionList(select, values, emptyLabel, options) {
     option.value = value;
     option.textContent = value;
     select.append(option);
+  });
+}
+
+function uniqueSorted(values) {
+  return Array.from(new Set(values.map((value) => String(value || "").trim()).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }),
+  );
+}
+
+function renderQueueOptionList(list, values) {
+  list.innerHTML = uniqueSorted(values)
+    .map((value) => `<option value="${escapeHtml(value)}"></option>`)
+    .join("");
+}
+
+function renderQueueFilterOptions(snapshot) {
+  const candidates = snapshot.actionQueue || [];
+  const options = {
+    applicant: candidates.flatMap((candidate) => [candidate.applicant, candidate.talentId]),
+    status: candidates.flatMap((candidate) => [candidate.talentStatus, candidate.currentPlacementStatus]),
+    office: candidates.map((candidate) => candidate.talentOffice || "Unassigned"),
+    representative: candidates.map((candidate) => candidate.talentRepresentative || "Unassigned"),
+    blocker: candidates.flatMap((candidate) => [candidate.topBlocker, candidate.blockerType]),
+    created: candidates.map((candidate) => formatDate(candidate.createdDate)).filter((value) => value !== "Blank"),
+  };
+
+  elements.queueOptionLists.forEach((list) => {
+    renderQueueOptionList(list, options[list.dataset.queueOptions] || []);
   });
 }
 
@@ -413,11 +443,12 @@ function applicantUrl(candidate) {
   return `https://shiftfillers.myavionte.com/app/#/applicant/${encodeURIComponent(candidate.talentId)}/`;
 }
 
-function exportFileName() {
+function exportFileName(prefix) {
   const base = sanitizeFilePart(elements.reportTitle.textContent);
   const scope = state.tileFilter ? sanitizeFilePart(state.tileFilter.label) : "filtered-view";
   const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-  return `${base}-${scope}-${timestamp}.csv`;
+  const exportType = prefix ? `${sanitizeFilePart(prefix)}-` : "";
+  return `${base}-${exportType}${scope}-${timestamp}.csv`;
 }
 
 function buildFilteredCsv(rows) {
@@ -451,6 +482,39 @@ function buildFilteredCsv(rows) {
   return lines.join("\r\n");
 }
 
+function buildSimpleFilteredCsv(rows) {
+  const headers = ["Applicant Link", "Applicant", "Talent ID", "Talent Status", "Current Placement Status"];
+  const lines = [headers.map(csvCell).join(",")];
+
+  rows.forEach((candidate) => {
+    lines.push(
+      [
+        applicantUrl(candidate),
+        candidate.applicant,
+        candidate.talentId,
+        candidate.talentStatus,
+        candidate.currentPlacementStatus,
+      ]
+        .map(csvCell)
+        .join(","),
+    );
+  });
+
+  return lines.join("\r\n");
+}
+
+function downloadCsv(csv, fileName) {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function exportFilteredCsv() {
   const rows = state.visibleRows || [];
   if (!state.snapshot || rows.length === 0) {
@@ -458,15 +522,17 @@ function exportFilteredCsv() {
   }
 
   const csv = buildFilteredCsv(rows);
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = exportFileName();
-  document.body.append(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv(csv, exportFileName());
+}
+
+function exportSimpleFilteredCsv() {
+  const rows = state.visibleRows || [];
+  if (!state.snapshot || rows.length === 0) {
+    return;
+  }
+
+  const csv = buildSimpleFilteredCsv(rows);
+  downloadCsv(csv, exportFileName("simple-export"));
 }
 
 function queueText(candidate, key) {
@@ -710,11 +776,13 @@ function renderFilters(snapshot) {
   optionList(elements.status, options.statuses, "All statuses");
   optionList(elements.priority, options.priorities, "All priorities");
   optionList(elements.blocker, options.blockerTypes, "All blockers");
+  renderQueueFilterOptions(snapshot);
 }
 
 function renderQueue(rows) {
   elements.queueCount.textContent = `${formatNumber(rows.length)} candidates`;
   elements.exportFilteredCsv.disabled = rows.length === 0;
+  elements.simpleExportFilteredCsv.disabled = rows.length === 0;
 
   if (rows.length === 0) {
     elements.queueBody.innerHTML = `
@@ -1115,6 +1183,7 @@ elements.clearTileFilter.addEventListener("click", () => {
 });
 
 elements.exportFilteredCsv.addEventListener("click", exportFilteredCsv);
+elements.simpleExportFilteredCsv.addEventListener("click", exportSimpleFilteredCsv);
 
 elements.queueFilters.forEach((input) => {
   input.addEventListener("input", () => {
