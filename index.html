@@ -49,10 +49,18 @@
               <input id="searchFilter" type="search" placeholder="Name, ID, office">
             </label>
 
-            <label>
-              Office
-              <select id="officeFilter"></select>
-            </label>
+            <div class="filter-group">
+              <div class="filter-row-heading">
+                <span>Office</span>
+                <button id="clearOfficeFilter" class="text-button" type="button">Clear</button>
+              </div>
+              <div class="multi-dropdown" id="officeDropdown">
+                <button id="officeFilterButton" class="multi-dropdown-button" type="button" aria-expanded="false" aria-controls="officeFilterMenu">
+                  No offices selected
+                </button>
+                <div id="officeFilterMenu" class="multi-dropdown-menu" hidden></div>
+              </div>
+            </div>
 
             <label>
               Branch
@@ -119,6 +127,10 @@
             </div>
 
             <div id="queueView">
+              <div id="tileFilterNotice" class="tile-filter-notice" hidden>
+                <span id="tileFilterText">Filtered view applied.</span>
+                <button id="clearTileFilter" class="text-button" type="button">Clear</button>
+              </div>
               <div class="table-wrap">
                 <table>
                   <thead>

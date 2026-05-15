@@ -1,4 +1,21 @@
 const Dashboard = window.OnboardingDashboard;
+const SAVED_UPLOAD_KEY = "onboarding-dashboard.savedUpload";
+const TILE_PREFS_KEY = "onboarding-dashboard.tilePrefs";
+const DEFAULT_COMPLETION_PATTERNS = [
+  /form\s+i-?9/i,
+  /equifax workforce solutions/i,
+  /general shift\s*fillers packet 3\.20\.2026/i,
+  /background check data collection form/i,
+  /pre-screening/i,
+  /pre-employment drug screen authorization/i,
+  /contingent offer letter/i,
+  /direct deposit/i,
+  /emergency contact info/i,
+  /symmetry tax/i,
+  /background check.*consent/i,
+  /consent.*background check/i,
+  /various vendor background check consent forms/i,
+];
 
 const state = {
   snapshot: null,
@@ -6,6 +23,17 @@ const state = {
   sortKey: "priority",
   sortDirection: "asc",
   queueFilters: {},
+  selectedOffices: [],
+  draggedTileKey: "",
+  draggedTileSection: "",
+  tileFilter: null,
+  workflowTiles: [],
+  suppressTileClick: false,
+  tilePrefs: {
+    labels: {},
+    orders: {},
+    completionOrders: {},
+  },
 };
 
 const elements = {
@@ -18,7 +46,10 @@ const elements = {
   reportDate: document.getElementById("reportDate"),
   summaryCards: document.getElementById("summaryCards"),
   search: document.getElementById("searchFilter"),
-  office: document.getElementById("officeFilter"),
+  officeDropdown: document.getElementById("officeDropdown"),
+  officeButton: document.getElementById("officeFilterButton"),
+  officeMenu: document.getElementById("officeFilterMenu"),
+  clearOffice: document.getElementById("clearOfficeFilter"),
   branch: document.getElementById("branchFilter"),
   representative: document.getElementById("representativeFilter"),
   status: document.getElementById("statusFilter"),
@@ -31,6 +62,9 @@ const elements = {
   resetFilters: document.getElementById("resetFilters"),
   queueCount: document.getElementById("queueCount"),
   queueBody: document.getElementById("queueBody"),
+  tileFilterNotice: document.getElementById("tileFilterNotice"),
+  tileFilterText: document.getElementById("tileFilterText"),
+  clearTileFilter: document.getElementById("clearTileFilter"),
   queueFilters: Array.from(document.querySelectorAll("[data-queue-filter]")),
   sortButtons: Array.from(document.querySelectorAll("[data-sort]")),
   queueView: document.getElementById("queueView"),
@@ -48,7 +82,6 @@ const elements = {
 
 const filterInputs = [
   elements.search,
-  elements.office,
   elements.branch,
   elements.representative,
   elements.status,
@@ -84,12 +117,87 @@ function formatDate(value) {
   return Number.isNaN(parsed.getTime()) ? "Blank" : Dashboard.formatIsoDate(parsed);
 }
 
-function optionList(select, values, emptyLabel) {
+function saveUpload(fileName, csvText) {
+  try {
+    localStorage.setItem(
+      SAVED_UPLOAD_KEY,
+      JSON.stringify({
+        fileName,
+        csvText,
+        savedAt: new Date().toISOString(),
+      }),
+    );
+  } catch (error) {
+    console.warn("Could not save uploaded CSV for reload persistence.", error);
+  }
+}
+
+function clearSavedUpload() {
+  try {
+    localStorage.removeItem(SAVED_UPLOAD_KEY);
+  } catch (error) {
+    console.warn("Could not clear saved CSV upload.", error);
+  }
+}
+
+function loadTilePrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TILE_PREFS_KEY) || "null");
+    if (saved && typeof saved === "object") {
+      state.tilePrefs = {
+        labels: saved.labels && typeof saved.labels === "object" ? saved.labels : {},
+        orders: saved.orders && typeof saved.orders === "object" ? saved.orders : {},
+        completionOrders: saved.completionOrders && typeof saved.completionOrders === "object" ? saved.completionOrders : {},
+      };
+      if (Array.isArray(state.tilePrefs.orders.completion) && !state.tilePrefs.completionOrders.default) {
+        state.tilePrefs.completionOrders.default = state.tilePrefs.orders.completion;
+      }
+    }
+  } catch (error) {
+    state.tilePrefs = { labels: {}, orders: {}, completionOrders: {} };
+  }
+}
+
+function saveTilePrefs() {
+  try {
+    localStorage.setItem(TILE_PREFS_KEY, JSON.stringify(state.tilePrefs));
+  } catch (error) {
+    console.warn("Could not save dashboard tile preferences.", error);
+  }
+}
+
+function restoreSavedUpload() {
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(SAVED_UPLOAD_KEY) || "null");
+  } catch (error) {
+    clearSavedUpload();
+    return;
+  }
+
+  if (!saved || !saved.csvText) {
+    return;
+  }
+
+  try {
+    const fileName = saved.fileName || "Saved upload";
+    const snapshot = Dashboard.createDashboardFromCsv(saved.csvText, { fileName });
+    showDashboard(snapshot, fileName);
+  } catch (error) {
+    console.warn("Could not restore saved CSV upload.", error);
+    clearSavedUpload();
+  }
+}
+
+function optionList(select, values, emptyLabel, options) {
+  const settings = options || {};
   select.innerHTML = "";
-  const empty = document.createElement("option");
-  empty.value = "";
-  empty.textContent = emptyLabel;
-  select.append(empty);
+  if (!settings.skipEmpty) {
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = emptyLabel;
+    select.append(empty);
+  }
 
   values.forEach((value) => {
     const option = document.createElement("option");
@@ -99,10 +207,57 @@ function optionList(select, values, emptyLabel) {
   });
 }
 
+function updateOfficeButton() {
+  const count = state.selectedOffices.length;
+  if (count === 0) {
+    elements.officeButton.textContent = "No offices selected";
+  } else if (count === 1) {
+    elements.officeButton.textContent = state.selectedOffices[0];
+  } else {
+    elements.officeButton.textContent = `${count} offices selected`;
+  }
+}
+
+function setOfficeMenuOpen(open) {
+  elements.officeMenu.hidden = !open;
+  elements.officeButton.setAttribute("aria-expanded", String(open));
+}
+
+function renderOfficeFilter(offices) {
+  const selected = new Set(state.selectedOffices);
+  elements.officeMenu.innerHTML = offices
+    .map((office) => {
+      const isSelected = selected.has(office);
+      return `
+        <button class="multi-dropdown-option ${isSelected ? "is-selected" : ""}" type="button" data-office="${escapeHtml(office)}" aria-pressed="${isSelected}">
+          ${escapeHtml(office)}
+        </button>
+      `;
+    })
+    .join("");
+  updateOfficeButton();
+}
+
+function toggleOfficeSelection(office, option) {
+  const wasSelected = state.selectedOffices.includes(office);
+  if (state.selectedOffices.includes(office)) {
+    state.selectedOffices = state.selectedOffices.filter((selected) => selected !== office);
+  } else {
+    state.selectedOffices = state.selectedOffices.concat(office);
+  }
+  if (option) {
+    option.classList.toggle("is-selected", !wasSelected);
+    option.setAttribute("aria-pressed", String(!wasSelected));
+  }
+  updateOfficeButton();
+  setOfficeMenuOpen(true);
+  refresh();
+}
+
 function getFilters() {
   return {
     search: elements.search.value,
-    office: elements.office.value,
+    offices: state.selectedOffices,
     branch: elements.branch.value,
     representative: elements.representative.value,
     status: elements.status.value,
@@ -115,12 +270,129 @@ function getFilters() {
   };
 }
 
+function hasActiveFilters(filters) {
+  const selected = filters || getFilters();
+  const sidebarActive =
+    Boolean(String(selected.search || "").trim()) ||
+    (selected.offices || []).length > 0 ||
+    Boolean(selected.branch) ||
+    Boolean(selected.representative) ||
+    Boolean(selected.status) ||
+    Boolean(selected.priority) ||
+    Boolean(selected.blockerType) ||
+    Boolean(selected.createdFrom) ||
+    Boolean(selected.createdTo) ||
+    Boolean(selected.activityAge) ||
+    Boolean(selected.includeInactive);
+  const queueActive = Object.values(state.queueFilters).some((value) => Boolean(String(value || "").trim()));
+  return sidebarActive || queueActive;
+}
+
+function shouldShowDefaultCompletionItem(item) {
+  const name = item.name || "";
+  return DEFAULT_COMPLETION_PATTERNS.some((pattern) => pattern.test(name));
+}
+
+function completionOrderScope() {
+  return state.selectedOffices.length === 1 ? `office:${state.selectedOffices[0]}` : "default";
+}
+
+function completionOrderKey() {
+  return completionOrderScope();
+}
+
+function applyWorkflowCounts(workflowTiles, rows) {
+  return Dashboard.buildWorkflowCompletionItems(rows, workflowTiles);
+}
+
+function metricFilterMatches(candidate, key) {
+  const checks = {
+    "metric-total-active": () => !candidate.isInactive,
+    "metric-critical": () => candidate.priority === "Critical",
+    "metric-high": () => candidate.priority === "High",
+    "metric-pending": () => candidate.hasPending,
+    "metric-stale": () => candidate.pendingAndStale,
+    "metric-missing-owner": () => !candidate.talentRepresentative,
+    "metric-i9-incomplete": () => !candidate.i9Completed,
+    "metric-fully-vetted": () => candidate.talentStatus.toLowerCase().includes("fully vetted"),
+    "metric-started": () => candidate.started,
+  };
+  return checks[key] ? checks[key]() : true;
+}
+
+function applyTileFilter(rows) {
+  if (!state.tileFilter) {
+    return rows;
+  }
+  const filter = state.tileFilter;
+  return rows.filter((candidate) => {
+    if (filter.type === "metric") {
+      return metricFilterMatches(candidate, filter.key);
+    }
+    if (filter.type === "status") {
+      return candidate.talentStatus === filter.value;
+    }
+    if (filter.type === "completion") {
+      return Dashboard.candidateMatchesWorkflowCompletion(candidate, state.workflowTiles, filter.key, filter.status);
+    }
+    return true;
+  });
+}
+
+function renderTileFilterNotice() {
+  if (!state.tileFilter) {
+    elements.tileFilterNotice.hidden = true;
+    elements.tileFilterText.textContent = "";
+    return;
+  }
+  elements.tileFilterNotice.hidden = false;
+  const suffix = hasActiveFilters(getFilters()) ? " plus current filters" : "";
+  elements.tileFilterText.textContent = `Filtered view: ${state.tileFilter.label}${suffix}`;
+}
+
+function scrollToFilteredView() {
+  elements.tileFilterNotice.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function defaultCompletionDisplayItems(items) {
+  const grouped = [];
+  const consentGroup = {
+    name: "Various Vendor Background Check Consent Forms",
+    completed: 0,
+    incomplete: 0,
+    groupedNames: [],
+  };
+
+  items.forEach((item) => {
+    if (/background check.*consent/i.test(item.name) || /consent.*background check/i.test(item.name)) {
+      consentGroup.completed += item.completed;
+      consentGroup.incomplete += item.incomplete;
+      consentGroup.groupedNames.push(item.name);
+    } else {
+      grouped.push(item);
+    }
+  });
+
+  if (consentGroup.completed > 0 || consentGroup.incomplete > 0) {
+    grouped.push(consentGroup);
+  }
+
+  return grouped;
+}
+
 function getQueueFilterValue(key) {
   return String(state.queueFilters[key] || "").trim().toLowerCase();
 }
 
 function getPendingTotal(candidate) {
   return candidate.pendingTasks.length + candidate.pendingDocuments.length;
+}
+
+function applicantUrl(candidate) {
+  if (!candidate.talentId) {
+    return "";
+  }
+  return `https://shiftfillers.myavionte.com/app/#/applicant/${encodeURIComponent(candidate.talentId)}/`;
 }
 
 function queueText(candidate, key) {
@@ -219,34 +491,146 @@ function renderSortButtons() {
   });
 }
 
-function renderSummary(summary) {
-  const cards = [
-    ["Total", summary.totalCandidates, "", ""],
-    ["Active candidates", summary.activeCandidates, "", "info"],
-    ["Critical", summary.criticalActionItems, "action items", "critical"],
-    ["High", summary.highActionItems, "action items", "high"],
-    ["Pending stale", summary.pendingAndStale, "over 7 days", "high"],
-    ["Missing owner", summary.missingOwner, "", "info"],
-    ["I-9 incomplete", summary.i9Incomplete, "", "critical"],
-    ["Fully vetted or started", summary.fullyVettedStarted, "", "good"],
-  ];
+function tileLabel(tile) {
+  return state.tilePrefs.labels[tile.key] || tile.label;
+}
 
-  elements.summaryCards.innerHTML = cards
-    .map(
-      ([label, value, note, tone]) => `
-        <article class="metric-card ${tone}">
-          <span>${escapeHtml(label)}</span>
-          <strong>${formatNumber(value)}</strong>
-          <span>${escapeHtml(note)}</span>
+function orderedTiles(section, tiles) {
+  const order =
+    section === "completion"
+      ? state.tilePrefs.completionOrders[completionOrderKey()] || []
+      : state.tilePrefs.orders[section] || [];
+  const indexByKey = new Map(order.map((key, index) => [key, index]));
+  return tiles.slice().sort((a, b) => {
+    const left = indexByKey.has(a.key) ? indexByKey.get(a.key) : Number.MAX_SAFE_INTEGER;
+    const right = indexByKey.has(b.key) ? indexByKey.get(b.key) : Number.MAX_SAFE_INTEGER;
+    return left - right;
+  });
+}
+
+function renderTileLabel(tile, editable) {
+  return editable
+    ? `<span class="tile-title" contenteditable="true" spellcheck="false" data-tile-label="${escapeHtml(tile.key)}">${escapeHtml(tileLabel(tile))}</span>`
+    : `<span class="tile-title">${escapeHtml(tileLabel(tile))}</span>`;
+}
+
+function saveTileOrder(section) {
+  const list = elements.summaryCards.querySelector(`[data-tile-list="${section}"]`);
+  if (!list) {
+    return;
+  }
+  const order = Array.from(list.querySelectorAll("[data-tile-key]")).map((tile) => tile.dataset.tileKey);
+  if (section === "completion") {
+    state.tilePrefs.completionOrders[completionOrderKey()] = order;
+  } else {
+    state.tilePrefs.orders[section] = order;
+  }
+  saveTilePrefs();
+}
+
+function moveTileBeforeDropTarget(tile, target, event) {
+  const list = target.parentElement;
+  if (!list || tile === target || tile.parentElement !== list) {
+    return;
+  }
+  const bounds = target.getBoundingClientRect();
+  const before = event.clientY < bounds.top + bounds.height / 2 || event.clientX < bounds.left + bounds.width / 2;
+  list.insertBefore(tile, before ? target : target.nextSibling);
+}
+
+function renderSummary(summary, options) {
+  const settings = options || {};
+  const metricCards = [
+    { key: "metric-total-active", label: "Total active candidates", value: summary.totalActiveCandidates, note: "", tone: "info" },
+    { key: "metric-critical", label: "Critical", value: summary.critical, note: "candidates", tone: "critical" },
+    { key: "metric-high", label: "High", value: summary.high, note: "candidates", tone: "high" },
+    { key: "metric-pending", label: "Pending", value: summary.pending, note: "candidates", tone: "high" },
+    { key: "metric-stale", label: "Stale", value: summary.stale, note: "over 7 days or blank", tone: "high" },
+    { key: "metric-missing-owner", label: "Missing owner", value: summary.missingOwner, note: "candidates", tone: "info" },
+    { key: "metric-i9-incomplete", label: "I-9 incomplete", value: summary.i9Incomplete, note: "candidates", tone: "critical" },
+    { key: "metric-fully-vetted", label: "Fully vetted", value: summary.fullyVetted, note: "candidates", tone: "good" },
+    { key: "metric-started", label: "Started", value: summary.started, note: "candidates", tone: "good" },
+  ];
+  const statusCards = (summary.statusCounts || []).map((status) => ({
+    key: `status-${status.name}`,
+    label: status.name,
+    value: status.count,
+    note: "status",
+    tone: "",
+  }));
+
+  const renderMetricCard = (tile, section) => `
+        <article class="metric-card ${tile.tone}" draggable="true" data-tile-section="${section}" data-tile-key="${escapeHtml(tile.key)}" data-filter-type="${section === "statuses" ? "status" : "metric"}" data-filter-value="${escapeHtml(section === "statuses" ? tile.label : tile.key)}" data-filter-label="${escapeHtml(tileLabel(tile))}">
+          ${renderTileLabel(tile, true)}
+          <strong>${formatNumber(tile.value)}</strong>
+          <span>${escapeHtml(tile.note)}</span>
         </article>
-      `,
-    )
-    .join("");
+      `;
+
+  const completionItems = settings.showAllCompletionItems
+    ? summary.completionItems || []
+    : defaultCompletionDisplayItems((summary.completionItems || []).filter(shouldShowDefaultCompletionItem));
+  const completionTiles = completionItems.map((item) => ({
+    key: `completion-${item.name}`,
+    label: item.name,
+    completed: 0,
+    incomplete: 0,
+    names: item.groupedNames && item.groupedNames.length ? item.groupedNames : [item.name],
+    groupedNames: item.groupedNames || [],
+  }));
+  const workflowTiles = applyWorkflowCounts(orderedTiles("completion", completionTiles), settings.workflowRows || []);
+  state.workflowTiles = workflowTiles;
+  const completionMarkup =
+    workflowTiles.length === 0
+      ? '<div class="completion-empty">No task or document completion items found.</div>'
+      : workflowTiles
+          .map(
+            (tile) => `
+              <article class="completion-card" draggable="true" data-tile-section="completion" data-tile-key="${escapeHtml(tile.key)}">
+                <strong title="${escapeHtml(tile.label)}">${renderTileLabel(tile, false)}</strong>
+                <div class="completion-stack">
+                  <button type="button" data-filter-type="completion" data-filter-status="completed" data-filter-key="${escapeHtml(tile.key)}" data-filter-label="${escapeHtml(`${tileLabel(tile)} - Completed`)}"><span>Completed</span><b>${formatNumber(tile.completed)}</b></button>
+                  <button type="button" data-filter-type="completion" data-filter-status="incomplete" data-filter-key="${escapeHtml(tile.key)}" data-filter-label="${escapeHtml(`${tileLabel(tile)} - Incomplete`)}"><span>Incomplete</span><b>${formatNumber(tile.incomplete)}</b></button>
+                </div>
+                ${
+                  tile.groupedNames.length
+                    ? `<details class="completion-details"><summary>Included forms</summary><ul>${tile.groupedNames.map((name) => `<li>${escapeHtml(name)}</li>`).join("")}</ul></details>`
+                    : ""
+                }
+              </article>
+            `,
+          )
+          .join("");
+
+  elements.summaryCards.innerHTML = `
+    <section class="summary-section" aria-label="Candidate metrics">
+      <div class="summary-row" data-tile-list="metrics">
+        ${orderedTiles("metrics", metricCards).map((tile) => renderMetricCard(tile, "metrics")).join("")}
+      </div>
+    </section>
+    <section class="summary-section" aria-label="Talent statuses">
+      <div class="summary-section-heading">
+        <p class="eyebrow">Talent statuses</p>
+      </div>
+      <div class="summary-row" data-tile-list="statuses">
+        ${orderedTiles("statuses", statusCards).map((tile) => renderMetricCard(tile, "statuses")).join("")}
+      </div>
+    </section>
+    <section class="summary-section" aria-label="Task and document completion">
+      <div class="summary-section-heading">
+        <p class="eyebrow">Tasks and documents</p>
+        <h2>Completion</h2>
+      </div>
+      <div class="completion-grid" data-tile-list="completion">
+        ${completionMarkup}
+      </div>
+    </section>
+  `;
 }
 
 function renderFilters(snapshot) {
   const options = Dashboard.getFilterOptions(snapshot);
-  optionList(elements.office, options.offices, "All offices");
+  renderOfficeFilter(options.offices);
   optionList(elements.branch, options.branches, "All branches");
   optionList(elements.representative, options.representatives, "All reps");
   optionList(elements.status, options.statuses, "All statuses");
@@ -269,11 +653,17 @@ function renderQueue(rows) {
   elements.queueBody.innerHTML = rows
     .slice(0, 500)
     .map(
-      (candidate) => `
+      (candidate) => {
+        const url = applicantUrl(candidate);
+        const applicantName = escapeHtml(candidate.applicant || "Unnamed");
+        const applicantLink = url
+          ? `<a class="row-link" href="${url}" target="_blank" rel="noopener noreferrer">${applicantName}</a>`
+          : `<button class="row-button" type="button" data-candidate="${candidate.id}">${applicantName}</button>`;
+        return `
         <tr>
           <td><span class="badge ${candidate.priority}">${candidate.priority}</span></td>
           <td>
-            <button class="row-button" type="button" data-candidate="${candidate.id}">${escapeHtml(candidate.applicant || "Unnamed")}</button>
+            ${applicantLink}
             <span class="subtle">${escapeHtml(candidate.talentId || "No talent ID")} | row ${candidate.rowNumber}</span>
           </td>
           <td>${escapeHtml(candidate.talentStatus || "No status")}<span class="subtle">${escapeHtml(candidate.currentPlacementStatus || "No placement status")}</span></td>
@@ -284,7 +674,8 @@ function renderQueue(rows) {
           <td>${candidate.lastActivityAgeDays === null ? "Blank" : `${candidate.lastActivityAgeDays} days`}<span class="subtle">${formatDate(candidate.lastActivityDate)}</span></td>
           <td>${formatDate(candidate.createdDate)}</td>
         </tr>
-      `,
+      `;
+      },
     )
     .join("");
 }
@@ -340,20 +731,28 @@ function refresh() {
     return;
   }
 
-  const rows = sortQueueRows(applyQueueColumnFilters(Dashboard.applyDashboardFilters(state.snapshot, getFilters())));
+  const filters = getFilters();
+  const baseRows = applyQueueColumnFilters(Dashboard.applyDashboardFilters(state.snapshot, filters));
   renderSortButtons();
+  renderTileFilterNotice();
+  renderSummary(Dashboard.buildFilteredSummary(baseRows), {
+    showAllCompletionItems: hasActiveFilters(filters),
+    workflowRows: baseRows,
+  });
+  const rows = sortQueueRows(applyTileFilter(baseRows));
   renderQueue(rows);
 }
 
 function showDashboard(snapshot, fileName) {
   state.snapshot = snapshot;
+  state.selectedOffices = [];
+  setOfficeMenuOpen(false);
   elements.dashboard.hidden = false;
   elements.clearButton.hidden = false;
   elements.reportTitle.textContent = fileName || "Uploaded report";
   elements.rowCount.textContent = `${formatNumber(snapshot.parsedRowCount)} rows`;
   elements.columnCount.textContent = `${formatNumber(snapshot.parsedColumnCount)} columns`;
   elements.reportDate.textContent = snapshot.reportDate;
-  renderSummary(snapshot.summary);
   renderFilters(snapshot);
   renderBreakdowns(snapshot);
   refresh();
@@ -361,7 +760,9 @@ function showDashboard(snapshot, fileName) {
 
 function resetFilters() {
   elements.search.value = "";
-  elements.office.value = "";
+  state.selectedOffices = [];
+  renderOfficeFilter(Dashboard.getFilterOptions(state.snapshot).offices);
+  setOfficeMenuOpen(false);
   elements.branch.value = "";
   elements.representative.value = "";
   elements.status.value = "";
@@ -372,6 +773,7 @@ function resetFilters() {
   elements.activityAge.value = "";
   elements.includeInactive.checked = false;
   state.queueFilters = {};
+  state.tileFilter = null;
   elements.queueFilters.forEach((input) => {
     input.value = "";
   });
@@ -482,20 +884,157 @@ elements.file.addEventListener("change", async (event) => {
 
   const text = await file.text();
   const snapshot = Dashboard.createDashboardFromCsv(text, { fileName: file.name });
+  saveUpload(file.name, text);
   showDashboard(snapshot, file.name);
 });
 
 elements.clearButton.addEventListener("click", () => {
   state.snapshot = null;
+  state.selectedOffices = [];
+  state.tileFilter = null;
+  elements.officeMenu.innerHTML = "";
+  updateOfficeButton();
+  setOfficeMenuOpen(false);
   elements.file.value = "";
   elements.dashboard.hidden = true;
   elements.clearButton.hidden = true;
+  clearSavedUpload();
   closeDetail();
 });
 
 filterInputs.forEach((input) => {
   input.addEventListener("input", refresh);
   input.addEventListener("change", refresh);
+});
+
+elements.officeButton.addEventListener("click", () => {
+  setOfficeMenuOpen(elements.officeButton.getAttribute("aria-expanded") !== "true");
+});
+
+elements.officeMenu.addEventListener("click", (event) => {
+  const option = event.target.closest("[data-office]");
+  if (!option) {
+    return;
+  }
+  toggleOfficeSelection(option.dataset.office, option);
+});
+
+elements.clearOffice.addEventListener("click", () => {
+  state.selectedOffices = [];
+  if (state.snapshot) {
+    renderOfficeFilter(Dashboard.getFilterOptions(state.snapshot).offices);
+  }
+  setOfficeMenuOpen(false);
+  refresh();
+});
+
+document.addEventListener("click", (event) => {
+  if (!elements.officeDropdown.contains(event.target) && event.target !== elements.clearOffice) {
+    setOfficeMenuOpen(false);
+  }
+});
+
+elements.summaryCards.addEventListener("dragstart", (event) => {
+  const tile = event.target.closest("[data-tile-key]");
+  if (!tile) {
+    return;
+  }
+  state.suppressTileClick = true;
+  state.draggedTileKey = tile.dataset.tileKey;
+  state.draggedTileSection = tile.dataset.tileSection;
+  tile.classList.add("is-dragging");
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", tile.dataset.tileKey);
+});
+
+elements.summaryCards.addEventListener("dragover", (event) => {
+  const target = event.target.closest("[data-tile-key]");
+  if (!target || !state.draggedTileKey) {
+    return;
+  }
+  const dragged = elements.summaryCards.querySelector(`[data-tile-key="${CSS.escape(state.draggedTileKey)}"]`);
+  if (!dragged || dragged.dataset.tileSection !== target.dataset.tileSection) {
+    return;
+  }
+  event.preventDefault();
+  moveTileBeforeDropTarget(dragged, target, event);
+});
+
+elements.summaryCards.addEventListener("drop", (event) => {
+  const tile = event.target.closest("[data-tile-key]");
+  if (!tile || !state.draggedTileKey) {
+    return;
+  }
+  event.preventDefault();
+  saveTileOrder(tile.dataset.tileSection);
+});
+
+elements.summaryCards.addEventListener("dragend", () => {
+  if (state.draggedTileSection) {
+    saveTileOrder(state.draggedTileSection);
+  }
+  elements.summaryCards.querySelectorAll(".is-dragging").forEach((tile) => tile.classList.remove("is-dragging"));
+  state.draggedTileKey = "";
+  state.draggedTileSection = "";
+  setTimeout(() => {
+    state.suppressTileClick = false;
+  }, 0);
+});
+
+elements.summaryCards.addEventListener("click", (event) => {
+  if (state.suppressTileClick || event.target.closest("[contenteditable]") || event.target.closest("summary")) {
+    return;
+  }
+  const filterTarget = event.target.closest("[data-filter-type]");
+  if (!filterTarget) {
+    return;
+  }
+
+  const type = filterTarget.dataset.filterType;
+  const label = filterTarget.dataset.filterLabel || filterTarget.dataset.filterValue || "Selected tile";
+  if (type === "metric") {
+    state.tileFilter = {
+      type,
+      key: filterTarget.dataset.filterValue,
+      label,
+    };
+  } else if (type === "status") {
+    state.tileFilter = {
+      type,
+      value: filterTarget.dataset.filterValue,
+      label,
+    };
+  } else if (type === "completion") {
+    state.tileFilter = {
+      type,
+      key: filterTarget.dataset.filterKey,
+      status: filterTarget.dataset.filterStatus,
+      label,
+    };
+  }
+
+  refresh();
+  scrollToFilteredView();
+});
+
+elements.summaryCards.addEventListener("blur", (event) => {
+  const label = event.target.closest("[data-tile-label]");
+  if (!label) {
+    return;
+  }
+  const key = label.dataset.tileLabel;
+  const text = label.textContent.trim();
+  if (text) {
+    state.tilePrefs.labels[key] = text;
+  } else {
+    delete state.tilePrefs.labels[key];
+  }
+  saveTilePrefs();
+}, true);
+
+elements.clearTileFilter.addEventListener("click", () => {
+  state.tileFilter = null;
+  refresh();
 });
 
 elements.queueFilters.forEach((input) => {
@@ -551,3 +1090,6 @@ document.addEventListener("keydown", (event) => {
     closeDetail();
   }
 });
+
+loadTilePrefs();
+restoreSavedUpload();

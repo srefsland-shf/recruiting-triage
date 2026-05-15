@@ -394,6 +394,91 @@
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
   }
 
+  function summarizeCompletionItems(candidates) {
+    const map = new Map();
+    const addItems = (items, key) => {
+      items.forEach((item) => {
+        const name = normalizeText(item.name);
+        if (!name) {
+          return;
+        }
+        if (!map.has(name)) {
+          map.set(name, { name, completed: 0, incomplete: 0 });
+        }
+        map.get(name)[key] += 1;
+      });
+    };
+
+    candidates.forEach((candidate) => {
+      addItems(candidate.completedTasks, "completed");
+      addItems(candidate.completedDocuments, "completed");
+      addItems(candidate.pendingTasks, "incomplete");
+      addItems(candidate.pendingDocuments, "incomplete");
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const totalDiff = b.completed + b.incomplete - (a.completed + a.incomplete);
+      return totalDiff || a.name.localeCompare(b.name);
+    });
+  }
+
+  function itemNameMatches(item, names) {
+    const targets = Array.isArray(names) ? names : [names];
+    return targets.includes(item.name);
+  }
+
+  function hasWorkflowItem(candidate, names, completionStatus) {
+    const completedItems = candidate.completedTasks.concat(candidate.completedDocuments);
+    const incompleteItems = candidate.pendingTasks.concat(candidate.pendingDocuments);
+    if (completionStatus === "completed") {
+      return completedItems.some((item) => itemNameMatches(item, names));
+    }
+    if (completionStatus === "incomplete") {
+      return incompleteItems.some((item) => itemNameMatches(item, names));
+    }
+    return completedItems.concat(incompleteItems).some((item) => itemNameMatches(item, names));
+  }
+
+  function workflowTileNames(tile) {
+    return tile.names || tile.groupedNames || [tile.label || tile.name];
+  }
+
+  function buildWorkflowCompletionItems(candidates, tiles) {
+    const countedTiles = (tiles || []).map((tile) => ({
+      ...tile,
+      completed: 0,
+      incomplete: 0,
+      completedCandidateIds: [],
+      incompleteCandidateIds: [],
+    }));
+
+    (candidates || []).forEach((candidate) => {
+      for (const tile of countedTiles) {
+        const names = workflowTileNames(tile);
+        if (hasWorkflowItem(candidate, names, "incomplete")) {
+          tile.incomplete += 1;
+          tile.incompleteCandidateIds.push(candidate.id);
+          break;
+        }
+        if (hasWorkflowItem(candidate, names, "completed")) {
+          tile.completed += 1;
+          tile.completedCandidateIds.push(candidate.id);
+        }
+      }
+    });
+
+    return countedTiles;
+  }
+
+  function candidateMatchesWorkflowCompletion(candidate, workflowTiles, key, status) {
+    const tile = (workflowTiles || []).find((item) => item.key === key);
+    if (!tile) {
+      return false;
+    }
+    const candidateIds = status === "completed" ? tile.completedCandidateIds : tile.incompleteCandidateIds;
+    return (candidateIds || []).includes(candidate.id);
+  }
+
   function summarizeOffice(items) {
     const map = new Map();
     items.forEach((candidate) => {
@@ -458,19 +543,28 @@
     return warnings;
   }
 
-  function buildSummary(candidates) {
+  function buildSummary(candidates, options) {
+    const settings = options || {};
+    const summaryCandidates = settings.activeOnly === false ? candidates : candidates.filter((candidate) => !candidate.isInactive);
     return {
       totalCandidates: candidates.length,
-      activeCandidates: candidates.filter((candidate) => !candidate.isInactive).length,
-      criticalActionItems: candidates.filter((candidate) => candidate.priority === "Critical").length,
-      highActionItems: candidates.filter((candidate) => candidate.priority === "High").length,
-      pendingAndStale: candidates.filter((candidate) => candidate.pendingAndStale).length,
-      missingOwner: candidates.filter((candidate) => !candidate.talentRepresentative).length,
-      i9Incomplete: candidates.filter((candidate) => !candidate.i9Completed).length,
-      eVerifyMissing: candidates.filter((candidate) => !candidate.eVerifyDate).length,
-      fullyVettedStarted: candidates.filter((candidate) => candidate.started || candidate.talentStatus.toLowerCase().includes("fully vetted")).length,
-      withPendingItems: candidates.filter((candidate) => candidate.hasPending).length,
+      totalActiveCandidates: summaryCandidates.length,
+      critical: summaryCandidates.filter((candidate) => candidate.priority === "Critical").length,
+      high: summaryCandidates.filter((candidate) => candidate.priority === "High").length,
+      pending: summaryCandidates.filter((candidate) => candidate.hasPending).length,
+      stale: summaryCandidates.filter((candidate) => candidate.pendingAndStale).length,
+      missingOwner: summaryCandidates.filter((candidate) => !candidate.talentRepresentative).length,
+      i9Incomplete: summaryCandidates.filter((candidate) => !candidate.i9Completed).length,
+      eVerifyMissing: summaryCandidates.filter((candidate) => !candidate.eVerifyDate).length,
+      fullyVetted: summaryCandidates.filter((candidate) => candidate.talentStatus.toLowerCase().includes("fully vetted")).length,
+      started: summaryCandidates.filter((candidate) => candidate.started).length,
+      statusCounts: groupCounts(summaryCandidates, (candidate) => candidate.talentStatus || "No status"),
+      completionItems: summarizeCompletionItems(summaryCandidates),
     };
+  }
+
+  function buildFilteredSummary(candidates) {
+    return buildSummary(candidates || [], { activeOnly: false });
   }
 
   function createDashboardFromCsv(csvText, options) {
@@ -536,12 +630,17 @@
     const search = normalizeText(selected.search).toLowerCase();
     const createdFrom = parseDate(selected.createdFrom);
     const createdTo = parseDate(selected.createdTo);
+    const selectedOffices = Array.isArray(selected.offices)
+      ? selected.offices.filter(Boolean)
+      : selected.office
+        ? [selected.office]
+        : [];
 
     return (snapshot.actionQueue || []).filter((candidate) => {
       if (!selected.includeInactive && candidate.isInactive) {
         return false;
       }
-      if (selected.office && candidate.talentOffice !== selected.office) {
+      if (selectedOffices.length > 0 && !selectedOffices.includes(candidate.talentOffice)) {
         return false;
       }
       if (selected.branch && candidate.repBranch !== selected.branch) {
@@ -598,6 +697,9 @@
     HIDDEN_BY_DEFAULT,
     PRIORITY_ORDER,
     applyDashboardFilters,
+    buildFilteredSummary,
+    buildWorkflowCompletionItems,
+    candidateMatchesWorkflowCompletion,
     createDashboardFromCsv,
     formatIsoDate,
     getCandidateDetail,
