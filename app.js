@@ -952,7 +952,7 @@ elements.summaryCards.addEventListener("dragover", (event) => {
   if (!target || !state.draggedTileKey) {
     return;
   }
-  const dragged = elements.summaryCards.querySelector(`[data-tile-key="${CSS.escape(state.draggedTileKey)}"]`);
+  const dragged = Array.from(elements.summaryCards.querySelectorAll("[data-tile-key]")).find((tile) => tile.dataset.tileKey === state.draggedTileKey);
   if (!dragged || dragged.dataset.tileSection !== target.dataset.tileSection) {
     return;
   }
