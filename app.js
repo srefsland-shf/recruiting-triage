@@ -28,6 +28,7 @@ const state = {
   draggedTileSection: "",
   tileFilter: null,
   workflowTiles: [],
+  visibleRows: [],
   suppressTileClick: false,
   tilePrefs: {
     labels: {},
@@ -61,6 +62,7 @@ const elements = {
   includeInactive: document.getElementById("includeInactiveFilter"),
   resetFilters: document.getElementById("resetFilters"),
   queueCount: document.getElementById("queueCount"),
+  exportFilteredCsv: document.getElementById("exportFilteredCsv"),
   queueBody: document.getElementById("queueBody"),
   tileFilterNotice: document.getElementById("tileFilterNotice"),
   tileFilterText: document.getElementById("tileFilterText"),
@@ -115,6 +117,22 @@ function formatDate(value) {
   }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? "Blank" : Dashboard.formatIsoDate(parsed);
+}
+
+function csvCell(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  if (/[",\r\n]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+  return text;
+}
+
+function sanitizeFilePart(value) {
+  return String(value || "filtered-view")
+    .replace(/\.csv$/i, "")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "filtered-view";
 }
 
 function saveUpload(fileName, csvText) {
@@ -395,6 +413,62 @@ function applicantUrl(candidate) {
   return `https://shiftfillers.myavionte.com/app/#/applicant/${encodeURIComponent(candidate.talentId)}/`;
 }
 
+function exportFileName() {
+  const base = sanitizeFilePart(elements.reportTitle.textContent);
+  const scope = state.tileFilter ? sanitizeFilePart(state.tileFilter.label) : "filtered-view";
+  const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  return `${base}-${scope}-${timestamp}.csv`;
+}
+
+function buildFilteredCsv(rows) {
+  const rawHeaders = state.snapshot?.headers || [];
+  const calculatedHeaders = [
+    "Dashboard Priority",
+    "Dashboard Top Blocker",
+    "Dashboard Blocker Type",
+    "Dashboard Pending Items",
+    "Dashboard Last Activity Age Days",
+    "Dashboard Row Number",
+    "Applicant Link",
+  ];
+  const headers = calculatedHeaders.concat(rawHeaders);
+  const lines = [headers.map(csvCell).join(",")];
+
+  rows.forEach((candidate) => {
+    const calculatedValues = [
+      candidate.priority,
+      candidate.topBlocker,
+      candidate.blockerType,
+      getPendingTotal(candidate),
+      candidate.lastActivityAgeDays === null ? "" : candidate.lastActivityAgeDays,
+      candidate.rowNumber,
+      applicantUrl(candidate),
+    ];
+    const rawValues = rawHeaders.map((header) => candidate.raw[header] || "");
+    lines.push(calculatedValues.concat(rawValues).map(csvCell).join(","));
+  });
+
+  return lines.join("\r\n");
+}
+
+function exportFilteredCsv() {
+  const rows = state.visibleRows || [];
+  if (!state.snapshot || rows.length === 0) {
+    return;
+  }
+
+  const csv = buildFilteredCsv(rows);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = exportFileName();
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function queueText(candidate, key) {
   const values = {
     priority: candidate.priority,
@@ -640,6 +714,7 @@ function renderFilters(snapshot) {
 
 function renderQueue(rows) {
   elements.queueCount.textContent = `${formatNumber(rows.length)} candidates`;
+  elements.exportFilteredCsv.disabled = rows.length === 0;
 
   if (rows.length === 0) {
     elements.queueBody.innerHTML = `
@@ -740,6 +815,7 @@ function refresh() {
     workflowRows: baseRows,
   });
   const rows = sortQueueRows(applyTileFilter(baseRows));
+  state.visibleRows = rows;
   renderQueue(rows);
 }
 
@@ -892,6 +968,7 @@ elements.clearButton.addEventListener("click", () => {
   state.snapshot = null;
   state.selectedOffices = [];
   state.tileFilter = null;
+  state.visibleRows = [];
   elements.officeMenu.innerHTML = "";
   updateOfficeButton();
   setOfficeMenuOpen(false);
@@ -1036,6 +1113,8 @@ elements.clearTileFilter.addEventListener("click", () => {
   state.tileFilter = null;
   refresh();
 });
+
+elements.exportFilteredCsv.addEventListener("click", exportFilteredCsv);
 
 elements.queueFilters.forEach((input) => {
   input.addEventListener("input", () => {

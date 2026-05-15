@@ -110,6 +110,26 @@ h3 {
   transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease, color 120ms ease, transform 80ms ease;
 }
 
+.compact-button {
+  min-height: 32px;
+  padding: 0 11px;
+}
+
+.ghost-button:disabled {
+  color: #8b9bab;
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.ghost-button:disabled:hover,
+.ghost-button:disabled:active {
+  background: #ffffff;
+  border-color: var(--line);
+  box-shadow: none;
+  color: #8b9bab;
+  transform: none;
+}
+
 .file-button {
   background: var(--blue);
   border-color: var(--blue);
@@ -573,6 +593,14 @@ main {
   border-bottom: 1px solid var(--line);
 }
 
+.queue-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .queue-tabs {
   display: flex;
   gap: 6px;
@@ -924,12 +952,14 @@ tbody tr:hover {
   }
 
   .upload-controls,
+  .queue-actions,
   .queue-tabs {
     width: 100%;
   }
 
   .file-button,
   .ghost-button,
+  .compact-button,
   .tab-button {
     flex: 1;
   }
